@@ -1,0 +1,72 @@
+Commands
+
+
+bwa index GRCh38.p14.fa
+samtools faidx GRCh38.p14.fa
+gatk CreateSequenceDictionary -R GRCh38.p14.fa
+
+
+
+bwa mem -M -t 7 \
+  -R "@RG\tID:E250094780_L1\tSM:anon_dna\tPL:ILLUMINA\tLB:lib1\tPU:E250094780.lane1\tCN:GENOMEPL" \
+  GRCh38p14.fa 1.fq.gz 2.fq.gz > aln.sam
+
+
+
+samtools view -@ 7 -bS aln.sam | samtools sort -@ 7 -o aln.sorted.bam
+rm aln.sam
+
+
+SPRAWDZ CZY SA BLEDNE READY
+
+
+gatk ValidateSamFile -I aln.sorted.bam -R GRCh38p14.fa
+
+NIE MA BLEDNYCH READOW :
+
+
+SA BLEDNE READY : 
+samtools view -h aln.sorted.bam \
+  | awk '$0 ~ /^@/ || $1 != "E250094780L1C010R03400881544"' \
+  | samtools view -b -@ 7 -o aln.cleaned.bam
+
+samtools index -@ 7 aln.cleaned.bam
+
+
+gatk ValidateSamFile -I aln.cleaned.bam -R GRCh38p14.fa
+
+
+samtools calmd -@ 7 -b aln.cleaned.bam GRCh38p14.fa > aln.fixed.bam
+samtools index -@ 7 aln.fixed.bam
+
+
+
+
+
+gatk FixMateInformation \
+  -I aln.fixed.bam \
+  -O aln.fixmate.bam \
+  --SORT_ORDER coordinate
+samtools index aln.fixmate.bam
+
+
+
+
+
+gatk MarkDuplicates \
+  -I aln.fixmate.bam \
+  -O aln.dedup.bam \
+  -M aln.dedup.metrics.txt \
+  --REMOVE_DUPLICATES true
+samtools index aln.dedup.bam
+
+
+
+
+
+
+gatk SetNmMdAndUqTags \
+  -I aln.dedup.bam \
+  -O aln.cleaned.final.bam \
+  -R GRCh38p14.fa
+samtools index aln.cleaned.final.bam
