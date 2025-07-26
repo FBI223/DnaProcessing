@@ -1,0 +1,205 @@
+🧠 1. 📄 Sprawdź nagłówek i @RG (Read Group)
+bash
+KopiujEdytuj
+samtools view -H aln.fixed.bam
+Szukaj:
+    • @HD, @SQ, @RG, @PG
+    • @RG musi zawierać: ID, SM, PL co najmniej
+
+🧬 2. 📌 Sprawdź poprawność RG:Z: w rekordach
+bash
+KopiujEdytuj
+samtools view aln.fixed.bam | head -10
+Na końcu rekordu powinno być:
+ruby
+KopiujEdytuj
+RG:Z:E250094780_L1
+
+📊 3. 🧾 Podstawowe statystyki
+bash
+KopiujEdytuj
+samtools flagstat aln.fixed.bam
+Wynik:
+    • mapped: >95%
+    • properly paired: wysoki %
+    • duplicates: OK jeśli nie usunięto jeszcze
+
+🧮 4. 🎯 Rozkład MAPQ (jakość dopasowania)
+bash
+KopiujEdytuj
+samtools view aln.fixed.bam | awk '{print $5}' | sort | uniq -c
+Szukaj dominacji:
+    • 60 (unikalne dopasowania)
+    • mało 0 (niedopasowane)
+
+🧬 5. 🔤 Rozkład CIGAR (typ dopasowania)
+bash
+KopiujEdytuj
+samtools view aln.fixed.bam | awk '{print $6}' | sort | uniq -c | sort -nr | head
+Szukaj:
+    • CIGAR 150M, 76M, itp.
+    • mało * (niezmapowane)
+
+🧪 6. 🧩 Rozkład flag SAM (paired-end)
+bash
+KopiujEdytuj
+samtools view aln.fixed.bam | awk '{print $2}' | sort | uniq -c | sort -nr
+Szukaj poprawnych flag:
+    • 99, 147, 83, 163 (paired, mapped, proper)
+    • mało 77, 141 (unmapped)
+
+📏 7. 🔬 Głębokość pokrycia (coverage)
+Per-chromosome:
+bash
+KopiujEdytuj
+samtools idxstats aln.fixed.bam
+Globalne (średnie coverage):
+bash
+KopiujEdytuj
+samtools depth -a aln.fixed.bam | awk '{sum+=$3} END { print "Average coverage = ",sum/NR}'
+
+🧼 8. 🔁 Zliczenie duplikatów (bez usuwania)
+bash
+KopiujEdytuj
+gatk MarkDuplicates \
+  -I aln.fixed.bam \
+  -O /dev/null \
+  -M aln.dup.metrics.txt \
+  --REMOVE_DUPLICATES false
+Zobacz zawartość:
+bash
+KopiujEdytuj
+cat aln.dup.metrics.txt
+
+📋 9. 🧮 Histogram długości insertu (ISIZE)
+bash
+KopiujEdytuj
+samtools view aln.fixed.bam | awk '($9 > 0) { print $9 }' | sort -n | uniq -c | sort -nr | head
+
+✅ 10. 🛂 Walidacja BAM przez Picard stricte (dodatkowo)
+bash
+KopiujEdytuj
+picard ValidateSamFile \
+  I=aln.fixed.bam \
+  R=GRCh38p14.fa \
+  MODE=SUMMARY
+
+🔍 11. 🧪 Opcjonalnie: wykrycie nieprawidłowych rekordów
+bash
+KopiujEdytuj
+samtools view -h aln.fixed.bam | grep -v '^@' | awk '{ if ($1 == "" || $3 == "*") print $0 }' | wc -l
+
+📌 12. 🔬 Ilość readów z MAPQ=0
+bash
+KopiujEdytuj
+samtools view aln.fixed.bam | awk '{if ($5 == 0) c++} END {print c " unmapped or low-quality reads"}'
+
+🧮 13. 🎯 Histogram liczby readów per chromosom
+bash
+KopiujEdytuj
+samtools idxstats aln.fixed.bam | cut -f 1,3
+
+🔍 14. 🔄 Zliczenie par i singletonów
+bash
+KopiujEdytuj
+samtools view -f 1 -F 12 aln.fixed.bam | wc -l     # paired mapped
+samtools view -f 4 aln.fixed.bam | wc -l          # unmapped
+samtools view -f 8 aln.fixed.bam | wc -l          # mate unmapped
+
+🧠 15. 📊 Dokładna analiza znaczników NM, MD, AS (opcjonalne)
+bash
+KopiujEdytuj
+samtools view aln.fixed.bam | awk '{for(i=12;i<=NF;i++) if($i ~ /^NM:i:/) print $i}' | sort | uniq -c
+
+🧪 16. 📂 Czy plik BAM jest posortowany po koordynatach?
+bash
+KopiujEdytuj
+samtools view -H aln.fixed.bam | grep '@HD'
+Oczekiwane:
+css
+KopiujEdytuj
+@HD      VN:1.6  SO:coordinate
+
+✅ Po tych 16 testach masz 100% pewności, że BAM:
+    • ma poprawny nagłówek, tagi, strukturę
+    • został poprawnie zmapowany
+    • jest gotowy do downstream (MarkDuplicates, BaseRecalibrator, HaplotypeCaller)
+
+Chcesz, żebym z tego wygenerował gotowy skrypt validate_bam_full.sh z zapisaniem statystyk do pliku .txt?
+Powiedziałeś(-aś):
+teraz chce pousuwac duplikaty oraz przygotowac pod variant calling przefilrtowac zle rzeczy itd 
+ChatGPT powiedział:
+✅ Pełny pipeline oczyszczenia BAM pod GATK Variant Calling (WGS/WES)
+Zakładamy, że masz:
+    • ✔ aln.fixed.bam
+    • ✔ GRCh38p14.fa oraz .fai, .dict
+    • ✔ GATK 4.6+, samtools, picard
+
+🧹 1. Usuń duplikaty PCR (MarkDuplicates)
+bash
+KopiujEdytuj
+gatk MarkDuplicates \
+  -I aln.fixed.bam \
+  -O aln.dedup.bam \
+  -M aln.dedup.metrics.txt \
+  --REMOVE_DUPLICATES true
+➡️ Sprawdź metryki:
+bash
+KopiujEdytuj
+less aln.dedup.metrics.txt
+
+📍 2. Dodaj index .bai
+bash
+KopiujEdytuj
+samtools index aln.dedup.bam
+
+🧪 3. (opcjonalnie) Base Quality Score Recalibration (BQSR)
+Jeśli masz plik .vcf znanych wariantów (np. dbSNP):
+(a) Baza do BQSR (recal table)
+bash
+KopiujEdytuj
+gatk BaseRecalibrator \
+  -R GRCh38p14.fa \
+  -I aln.dedup.bam \
+  --known-sites dbsnp_renamed.vcf.gz \
+  -O recal.table
+(b) Zastosuj BQSR
+bash
+KopiujEdytuj
+gatk ApplyBQSR \
+  -R GRCh38p14.fa \
+  -I aln.dedup.bam \
+  --bqsr-recal-file recal.table \
+  -O aln.recal.bam
+(jeśli brak known-sites, pomiń ten krok i pracuj na aln.dedup.bam)
+
+🔍 4. (opcjonalnie) Filtracja zbyt krótkich, unmapped, niskiej jakości readów
+bash
+KopiujEdytuj
+samtools view -@ 8 -b \
+  -F 4 \                      # mapped only
+  -F 256 \                   # primary alignments only
+  -q 20 \                    # MAPQ ≥ 20
+  aln.recal.bam > aln.filtered.bam
+
+samtools index aln.filtered.bam
+
+🧪 5. Sprawdź końcowy plik BAM
+bash
+KopiujEdytuj
+gatk ValidateSamFile -I aln.filtered.bam -R GRCh38p14.fa
+samtools flagstat aln.filtered.bam
+
+🧬 6. Variant Calling (GVCF)
+bash
+KopiujEdytuj
+gatk HaplotypeCaller \
+  -R GRCh38p14.fa \
+  -I aln.filtered.bam \
+  -O sample.g.vcf.gz \
+  -ERC GVCF
+
+📋 7. (opcjonalnie) Summary BAM stats (bamtools)
+bash
+KopiujEdytuj
+bamtools stats -in aln.filtered.bam
